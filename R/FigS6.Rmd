@@ -1,0 +1,451 @@
+---
+title: "Trachoma serology threshold analysis"
+subtitle: "Estimates from single (Pgp3) vs double antigen (Pgp3+CT694) testing"
+author: "Ben Arnold ben.arnold@ucsf.edu"
+date: "updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+# Summary
+
+In this analysis, we compare evaluation unit (EU) level seroprevalence and seroconversion rate (SCR) estimates using different single vs double antigens.  Estimates focus on the 1-5y age range used in the primary analysis.
+Estimates were saved from scripts 
+
+`1-seroprev.R` 
+`2-scr-glm.R`
+`4-scr-pgp3ct694.R`
+
+This markdown file simply summarizes the estimates using figures.
+
+# Preamble
+
+```{r preamble, message = FALSE}
+#-----------------------------------------
+# Source project config file
+# and project functions
+#-----------------------------------------
+library(here)
+source(here("R/0-config.R"))
+source(here("R/0-functions.R"))
+```
+
+# Seroprevalence
+## Load estimates
+
+```{r load previous estimates}
+#-------------------------------
+# load the seroprev estimates for Pgp3 alone and Pgp3+CT694
+# there is a single estimate for each evaluation unit (EU)
+#-------------------------------
+d_sp_pgp3_1to3 <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-1to3.rds"))
+d_sp_pgp3_1to5 <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-1to5.rds"))
+d_sp_pgp3_1to9 <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-1to9.rds"))
+
+d_sp_pgp3ct694_1to3 <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-pgp3ct694-1to3.rds"))
+d_sp_pgp3ct694_1to5 <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-pgp3ct694-1to5.rds"))
+d_sp_pgp3ct694_1to9 <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-pgp3ct694-1to9.rds"))
+
+
+#-------------------------------
+# stack the data for plotting
+# convenience
+#-------------------------------
+d_sp <- d_sp_pgp3ct694_1to3 %>%
+  mutate(age_range = "1 to 3 years") %>%
+  bind_rows(d_sp_pgp3ct694_1to5) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 5 years",age_range)) %>%
+  bind_rows(d_sp_pgp3ct694_1to9) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 9 years",age_range),
+         antigen = "Pgp3 + CT694") %>%
+  bind_rows(d_sp_pgp3_1to3) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 3 years",age_range)) %>%
+  bind_rows(d_sp_pgp3_1to5) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 5 years",age_range)) %>%
+  bind_rows(d_sp_pgp3_1to9) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 9 years",age_range),
+         age_range = factor(age_range),
+         antigen = ifelse(is.na(antigen),"Pgp3",antigen))
+
+#-------------------------------
+# filter only to EUs that have both Pgp3 and CT694 measured
+#-------------------------------
+d_sp <- d_sp %>% filter(eu_name %in% unique(d_sp_pgp3ct694_1to3$eu_name))
+
+# remove DRC data:
+d_sp <- d_sp %>% dplyr::filter(!eu_name %in% c("DRC-Manono-2018", "DRC-Nyemba-2018"))
+
+```
+
+
+## Plot estimates by EU
+### All EUs, all ages
+Plot all seroprevalence estimates
+
+```{r plot sp by EU, fig.width=10, fig.height = 8}
+#-------------------------------
+# plot seroprev in the three age ranges
+#-------------------------------
+# order estimates by Pgp3 seroprev in 1-5 year olds
+d_sp_plot <- d_sp %>%
+  mutate(eu_name = factor(eu_name, levels=d_sp_pgp3_1to5$eu_name[order(d_sp_pgp3_1to5$seroprev,decreasing=FALSE)]),
+         grp_nudge = case_when(
+           antigen == "Pgp3" ~ -0.1,
+           antigen == "Pgp3 + CT694" ~ 0.1),
+         grp_lwd = case_when(
+           antigen == "Pgp3" ~ 0.5,
+           antigen == "Pgp3 + CT694" ~ 0.5)) %>%
+  arrange(eu_name,age_range) 
+  
+
+# colors (black, orange)
+pcols <- c("black",cbpal[2])
+
+plot_sp_by_eu <- ggplot(data=d_sp_plot,aes(x=eu_name,color=antigen))  +
+  facet_grid(~age_range) +
+  geom_errorbar(aes(ymin=seroprev_min95*100,ymax=seroprev_max95*100),
+                width=0.3,
+                lwd = d_sp_plot$grp_lwd,
+                position = position_nudge(x=d_sp_plot$grp_nudge)) +
+  geom_point(aes(y=seroprev*100),
+             position = position_nudge(x=d_sp_plot$grp_nudge)) +
+  scale_color_manual(values=pcols) +
+  scale_y_continuous(breaks=seq(0,50,by=10)) +
+  labs(x="",y="Seroprevalence (%)")+
+  coord_flip() +
+  theme_minimal() +
+  theme(legend.position = "top",
+        panel.grid.minor = element_blank(),
+        axis.title.x = element_text(size=12))
+
+```
+
+```{r lollipop seroprev 1to5s all EUs}
+# pivot seroprev wide for plot
+d_sp_plot_wide <- d_sp_plot %>%
+  filter(age_range == "1 to 5 years") %>%
+  select(eu_name,trachoma_cat, antigen,seroprev) %>%
+  pivot_wider(id_cols=c("trachoma_cat", "eu_name"),names_from=antigen,values_from=seroprev) %>%
+  mutate(diff = `Pgp3` - `Pgp3 + CT694`)
+dim(d_sp_plot_wide) # 32 EUs
+
+# colors (black, orange)
+pcols <- c("black",cbpal[2])
+
+plot_sp_by_eu_lollipop <- ggplot(data=d_sp_plot_wide, aes(x=eu_name))  +
+  # draw the Pgp3+CT694, color 
+  geom_segment( aes(x=eu_name, xend=eu_name, y=`Pgp3 + CT694`*100, yend=`Pgp3`*100), color=pcols[2], lwd=0.5) +
+  geom_point(aes(y=`Pgp3 + CT694`*100), size=2, color=pcols[2]) +
+  # draw the Pgp3 alone estimates, color black
+    geom_point(aes(y=`Pgp3`*100), color=pcols[1], size=2) +
+  scale_y_continuous(breaks=seq(0,40,by=10)) +
+  labs(x="",y="Seroprevalence (%)")+
+  coord_flip(ylim=c(0,40)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size=12),
+        axis.title = element_text(size=12))
+
+```
+
+```{r summarize the seroprev differences 1to5}
+# summarize the differences
+summary(d_sp_plot_wide %>% filter(Pgp3<0.1))
+
+hist_diff_pgp3ct6941to5 <- ggplot(d_sp_plot_wide %>% filter(Pgp3<0.1), aes(x=-diff*100)) + # negative to make it (Ppg3+CT694) - Pgp3
+  geom_histogram(binwidth = 0.3, alpha=1, fill = "gray80", color="gray20") +
+  labs(x = "Difference in Seroprevalence (%)\n(Pgp3 + CT694) - Pgp3 Alone",
+       y = "Number of EUs") +
+  scale_y_continuous(breaks=0:12) +
+  coord_cartesian(ylim=c(0,9), xlim = c(-5,0)) +
+  theme_classic() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank())
+
+```
+
+## Scatter plots
+
+```{r scatter plot pgp3 vs pgp3ct694 1to5}
+#-------------------------------
+# plot seroprev for single and double antigen
+#-------------------------------
+pcols <- c("#A42820", "cadetblue","gray95") 
+plot_sp_scatter_1to5 <- ggplot(data=d_sp_plot_wide) +
+  geom_abline(intercept=0,slope=1, color="gray50",linetype = "dashed") + 
+  geom_point(aes(y=`Pgp3 + CT694`*100,x=`Pgp3`*100, fill = trachoma_cat), 
+             pch=21, size = 2.5, alpha=0.8) +
+  scale_fill_manual(values=pcols) +
+  guides(fill = guide_legend("EU category") ) +
+  labs(y="Seroprevalence (%) Pgp3 + CT694",x="Seroprevalence (%) Pgp3", tag="A") +
+  scale_x_continuous(breaks=seq(0,40,by=5)) +
+  scale_y_continuous(breaks=seq(0,40,by=5)) +
+  coord_cartesian(ylim=c(0,40),xlim=c(0,40)) +
+  theme_minimal() +
+  theme(axis.text = element_text(size=12),
+        plot.tag = element_text(face="bold"),
+        panel.grid.minor = element_blank())
+
+#-------------------------------
+# summarize the linear fits over all EUs and just for those below 10% Pgp3 seroprev
+#-------------------------------
+fit_pgp3ct694 <- lm(`Pgp3 + CT694` ~ `Pgp3`, data = d_sp_plot_wide)
+summary(fit_pgp3ct694)
+
+fit_pgp3ct694_lt10 <- lm(`Pgp3 + CT694` ~ `Pgp3`, data = d_sp_plot_wide, subset = `Pgp3`<0.1)
+summary(fit_pgp3ct694_lt10)
+
+```
+
+```{r scatter plot pgp3 vs pgp3ct694 1to5 zoom, message = FALSE, warning = FALSE}
+# add bounding box for panel B
+plot_sp_scatter_1to5_with_box <- plot_sp_scatter_1to5 +
+  geom_rect(aes(xmin=-0.2,xmax=10.2,ymin=-0.2, ymax=10.2), color="black",fill=NA,linewidth=0.2) +
+  geom_segment(aes(x=10.2,xend=39,y=4,yend=4), arrow = arrow(length=unit(0.3,"cm")),linewidth=0.2) +
+  theme(legend.position = "right")
+
+# zoom in to the seroprev < 10% range
+plot_sp_scatter_1to5_zoom <- plot_sp_scatter_1to5 +
+  scale_x_continuous(breaks=0:10) +
+  scale_y_continuous(breaks=0:10) +
+  coord_cartesian(xlim=c(0,10),ylim=c(0,10)) +
+  labs(tag=" ") +
+  theme(legend.position = "none", panel.grid.minor = element_blank())
+
+plot_sp_scatter_comp <-  plot_sp_scatter_1to5_with_box + plot_sp_scatter_1to5_zoom + guide_area() + hist_diff_pgp3ct6941to5 +
+  plot_layout(ncol=2,nrow=2, widths = c(1,1), guides = "collect")
+
+```
+
+
+# SCR
+In this analysis, we compare evaluation unit (EU) level estimates of the seroconversion rate (SCR) estimated from age-seroprevalence curves with two different age ranges: 1 to 3 years old, 1 to 5 years old and 1 to 9 years old. All estimates assume a constant SCR over the age range.
+
+The model assumes a constant SCR ($\lambda$), and the proportion of children that are seropositive ($Y=1$) as a function of age ($A$) is:
+
+\begin{equation}
+P(Y=1|A) = 1-\exp(-\lambda \cdot A)
+\end{equation}
+
+Note, this is equivalent to assuming a Susceptible-Infected-Recovered (SIR) mechanistic model. 
+
+A convenient feature of this model is that we can estimate $\lambda$ using a generalized linear model with complementary log-log link and age as the intercept (see van der Laan and Jewell 1995 for details https://pubmed.ncbi.nlm.nih.gov/9385086/). 
+
+
+## Load estimates
+
+```{r load previous scr estimates}
+#-------------------------------
+# load the SCR estimates for Pgp3 alone and Pgp3+CT694
+# there is a single estimate for each evaluation unit (EU)
+#-------------------------------
+d_scr_pgp3_1to3 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-1to3.rds"))
+d_scr_pgp3_1to5 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-1to5.rds"))
+d_scr_pgp3_1to9 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-1to9.rds"))
+
+d_scr_pgp3ct694_1to3 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-pgp3ct694-1to3.rds"))
+d_scr_pgp3ct694_1to5 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-pgp3ct694-1to5.rds"))
+d_scr_pgp3ct694_1to9 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-pgp3ct694-1to9.rds"))
+
+#-------------------------------
+# stack the data for plotting convenience
+#-------------------------------
+d_scr <- d_scr_pgp3ct694_1to3 %>%
+  mutate(age_range = "1 to 3 years") %>%
+  bind_rows(d_scr_pgp3ct694_1to5) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 5 years",age_range)) %>%
+  bind_rows(d_scr_pgp3ct694_1to9) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 9 years",age_range),
+         antigen = "Pgp3 + CT694") %>%
+  bind_rows(d_scr_pgp3_1to3) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 3 years",age_range)) %>%
+  bind_rows(d_scr_pgp3_1to5) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 5 years",age_range)) %>%
+  bind_rows(d_scr_pgp3_1to9) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 9 years",age_range),
+         age_range = factor(age_range),
+         antigen = ifelse(is.na(antigen),"Pgp3",antigen))
+
+#-------------------------------
+# filter only to EUs that have both Pgp3 and CT694 measured
+#-------------------------------
+d_scr <- d_scr %>%
+  filter(eu_name %in% unique(d_scr_pgp3ct694_1to3$eu_name)) %>%
+  # set zero seropos to zero SCR
+  mutate(scr = ifelse(npos == 0, 0, scr),
+         scr_min95 = ifelse(npos==0,0,scr_min95),
+         scr_max95 = ifelse(npos==0,0,scr_max95))
+
+# remove DRC data:
+d_scr <- d_scr %>% dplyr::filter(!eu_name %in% c("DRC-Nyemba-2018", "DRC-Manono-2018"))
+
+```
+
+```{r plot SCR by EU, fig.width=10, fig.height = 8}
+#-------------------------------
+# plot SCR in the three age ranges
+#-------------------------------
+# order estimates by Pgp3 seroprev in 1-5 year olds
+d_scr_plot <- d_scr %>%
+  mutate(eu_name = factor(eu_name, levels=d_scr_pgp3_1to5$eu_name[order(d_scr_pgp3_1to5$scr,decreasing=FALSE)]),
+         grp_nudge = case_when(
+           antigen == "Pgp3" ~ -0.1,
+           antigen == "Pgp3 + CT694" ~ 0.1),
+         grp_lwd = case_when(
+           antigen == "Pgp3" ~ 0.5,
+           antigen == "Pgp3 + CT694" ~ 0.5)) %>%
+  arrange(eu_name,age_range) 
+  
+# colors (black, orange)
+pcols <- c("black",cbpal[2])
+
+plot_scr_by_eu <- ggplot(data=d_scr_plot,aes(x=eu_name,color=antigen))  +
+  facet_grid(~age_range) +
+  geom_errorbar(aes(ymin=scr_min95*100,ymax=scr_max95*100),
+                width=0.3,
+                lwd = d_sp_plot$grp_lwd,
+                position = position_nudge(x=d_sp_plot$grp_nudge)) +
+  geom_point(aes(y=scr*100),
+             position = position_nudge(x=d_sp_plot$grp_nudge)) +
+  scale_color_manual(values=pcols) +
+  scale_y_continuous(breaks=seq(0,20,by=2)) +
+  labs(x="",y="SCR per 100 person-years")+
+  coord_flip() +
+  theme_minimal() +
+  theme(legend.position = "top",
+        panel.grid.minor = element_blank(),
+        axis.title.x = element_text(size=12))
+
+```
+
+```{r lollipop scr 1to5s all EUs}
+# pivot seroprev wide for plot
+d_scr_plot_wide <- d_scr_plot %>%
+  filter(age_range == "1 to 5 years") %>%
+  select(trachoma_cat, eu_name,antigen,scr) %>%
+  pivot_wider(id_cols=c("trachoma_cat","eu_name"),names_from=antigen,values_from=scr) %>%
+  mutate(diff = `Pgp3` - `Pgp3 + CT694`)
+dim(d_scr_plot_wide) # 36 EUs
+
+# colors (black, orange)
+pcols <- c("black",cbpal[2])
+
+plot_scr_by_eu_lollipop <- ggplot(data=d_scr_plot_wide, aes(x=eu_name))  +
+  # draw the Pgp3+CT694, color 
+  geom_segment( aes(x=eu_name, xend=eu_name, y=`Pgp3 + CT694`*100, yend=`Pgp3`*100), color=pcols[2], lwd=0.5) +
+  geom_point(aes(y=`Pgp3 + CT694`*100), size=2, color=pcols[2]) +
+  # draw the Pgp3 alone estimates, color black
+    geom_point(aes(y=`Pgp3`*100), color=pcols[1], size=2) +
+  scale_y_continuous(breaks=seq(0,16,by=2)) +
+  labs(x="",y="SCR per 100 person-years")+
+  coord_flip(ylim=c(0,16)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size=12),
+        axis.title = element_text(size=12))
+
+```
+
+```{r summarize the scr differences 1to5}
+# summarize the differences
+summary(d_scr_plot_wide %>% filter(Pgp3<0.04))
+
+hist_scr_diff_pgp3ct6941to5 <- ggplot(d_scr_plot_wide %>% filter(Pgp3<0.04), aes(x=-diff*100)) + # negative to make it (Ppg3+CT694) - Pgp3
+  geom_histogram(binwidth = 0.1, alpha=1, fill = "gray80", color="gray20") +
+  labs(x = "Difference in SCR per 100 PY\n(Pgp3 + CT694) - Pgp3 Alone",
+       y = "Number of EUs") +
+  scale_y_continuous(breaks=0:9) +
+  scale_x_continuous(breaks=seq(-1.2,0,by=0.2)) +
+  coord_cartesian(ylim=c(0,9),xlim=c(-1.1,0.1)) +
+  theme_classic() 
+
+```
+
+
+## Scatter plots
+
+```{r scr scatter plot pgp3 vs pgp3ct694 1to5}
+#-------------------------------
+# plot SCR for single and double antigen
+#-------------------------------
+pcols <- c("#A42820", "cadetblue","gray95") 
+
+plot_scr_scatter_1to5 <- ggplot(data=d_scr_plot_wide) +
+  geom_abline(intercept=0,slope=1, color="gray50",linetype = "dashed") + 
+  geom_point(aes(y=`Pgp3 + CT694`*100,x=`Pgp3`*100, fill=trachoma_cat), 
+             pch=21,size=2, color="black",alpha=0.8
+             ) +
+  labs(y="SCR per 100 PY,  Pgp3 + CT694",x="SCR per 100 PY,  Pgp3",tag="B") +
+  scale_fill_manual(values = pcols) +
+  guides(fill = guide_legend(title="EU category")) +
+  scale_x_continuous(breaks=seq(0,16,by=2)) +
+  scale_y_continuous(breaks=seq(0,16,by=2)) +
+  coord_cartesian(ylim=c(0,16),xlim=c(0,16)) +
+  theme_minimal() +
+  theme(axis.text = element_text(size=12),
+        plot.tag = element_text(face="bold"),
+        panel.grid.minor = element_blank())
+
+#-------------------------------
+# summarize the linear fits over all EUs and just for those below 10% Pgp3 seroprev
+#-------------------------------
+fit_pgp3ct694 <- lm(`Pgp3 + CT694` ~ `Pgp3`, data = d_scr_plot_wide)
+summary(fit_pgp3ct694)
+
+fit_pgp3ct694_lt10 <- lm(`Pgp3 + CT694` ~ `Pgp3`, data = d_scr_plot_wide, subset = `Pgp3`<0.1)
+summary(fit_pgp3ct694_lt10)
+
+```
+
+
+```{r scatter plot pgp3 vs pgp3ct694 1to5 scr zoom, message = FALSE, warning = FALSE}
+# add bounding box for panel B
+plot_scr_scatter_1to5_with_box <- plot_scr_scatter_1to5 +
+  geom_rect(aes(xmin=-0.2,xmax=4.2,ymin=-0.2, ymax=4.2), color="black",fill=NA,linewidth=0.2) +
+  # annotate("text",x=0.5, y=4.5, label="B",fontface="bold")
+    geom_segment(aes(x=4.2,xend=16,y=2,yend=2), arrow = arrow(length=unit(0.3,"cm")),linewidth=0.2)  +
+  theme(legend.position = "none")
+
+# zoom in to the seroprev < 10% range
+plot_scr_scatter_1to5_zoom <- plot_scr_scatter_1to5 +
+  scale_x_continuous(breaks=0:4) +
+  scale_y_continuous(breaks=0:4) +
+  coord_cartesian(xlim=c(0,4),ylim=c(0,4)) +
+  labs(tag=" ") +
+  theme(legend.position = "none", panel.grid.minor = element_blank())
+
+plot_scr_scatter_comp <-  plot_scr_scatter_1to5_with_box + plot_scr_scatter_1to5_zoom + guide_area() + hist_scr_diff_pgp3ct6941to5 +
+  plot_layout(ncol=2,nrow=2, widths = c(1,1), guides = "collect")
+
+```
+
+```{r seroprev and scr composite plot}
+design <- "
+  12
+  #3
+  45
+  #6
+"
+
+serop_scr_comp_plot <- plot_sp_scatter_1to5_with_box + plot_sp_scatter_1to5_zoom + hist_diff_pgp3ct6941to5 +
+  plot_scr_scatter_1to5_with_box + plot_scr_scatter_1to5_zoom +  hist_scr_diff_pgp3ct6941to5 +
+  plot_layout(design = design, guides = "collect") & 
+  theme(plot.tag.position = c(0, 1),
+        plot.tag = element_text(hjust = 1, vjust = 0))
+
+ggsave(filename=here("output/","FigS6.png"),serop_scr_comp_plot,device ="png",
+       height=300,width=220, units="mm")
+```
+
+
+# Session Info
+```{r session info}
+sessionInfo()
+```
+

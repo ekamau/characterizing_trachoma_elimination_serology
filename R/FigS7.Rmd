@@ -1,0 +1,113 @@
+---
+title: "Trachoma serology threshold analysis"
+subtitle: "Comparison of SCR estimates with and without seroreversion"
+author: "Ben Arnold ben.arnold@ucsf.edu"
+date: "updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+# Summary
+
+In this analysis, we compare evaluation unit (EU) level  seroconversion rate (SCR) estimates using different modeling approaches: assuming a constant seroconversion rate with- and without- sero-reversion.
+
+Estimates were saved from scripts
+`1-estimate-seroprev.R` and
+`3-scr-sis.R` .  
+
+This markdown file simply summarizes the estimates using figures.
+
+# Preamble
+
+```{r preamble, message = FALSE}
+#-----------------------------------------
+# Source project config file and project functions
+#-----------------------------------------
+library(here)
+source(here("R/0-config.R"))
+source(here("R/0-functions.R"))
+```
+
+# Load estimates
+
+```{r load previous scr estimates}
+#-------------------------------
+# load the SCR estimates 1-5y for the two modeling strategies
+# there is a single estimate for each evaluation unit (EU)
+#-------------------------------
+d_glm_1to5 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-1to5.rds"))
+d_sis_1to5 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-sis-1to5.rds"))
+
+#-------------------------------
+# merge the estimates for analyses with 0 seropositive the SCR model will have not
+# converged. Can set this to 0
+#-------------------------------
+d <- d_glm_1to5 %>%
+  select(study_id,country,eu_name,trachoma_cat,
+         glmscr = scr,glmscr_min95=scr_min95,scrglm_max95 = scr_max95) %>%
+  left_join(d_sis_1to5, by = join_by(study_id, country, eu_name, trachoma_cat)) 
+
+```
+
+# Plot SCR with and without seroreversion
+## All EUs
+
+```{r plot scr vs seroprev}
+# fit a linear model over the whole range
+fit_sis_glm <- lm(scr ~ glmscr, data = d)
+d_pred <- data.frame(glmscr=seq(0,0.22,by=0.01),trachoma_cat="Unclassified")
+d_pred$pred <-predict(fit_sis_glm, newdata = d_pred)
+
+pcols <- c("#A42820", "cadetblue","gray95") 
+plot_sis_glm <- ggplot(data=d, aes(x=glmscr*100,y=scr*100, fill = trachoma_cat)) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color="gray40") + 
+  geom_line(data=d_pred,aes(x=glmscr*100,y=pred*100),lwd=0.2, color="gray40") +
+  geom_point(pch=21, size = 2.5, alpha=0.8) +
+  scale_y_continuous(breaks=seq(0,28,by=4)) +
+  scale_x_continuous(breaks=seq(0,28,by=4)) +
+  scale_fill_manual(values = pcols) + 
+  coord_cartesian(xlim=c(0,28),ylim=c(0,28)) +
+  labs(x = "SCR per 100 person-years\nNo seroreversion", y = "Including seroreversion\nSCR per 100 person-years", tag = " ", fill = "EU category") +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    panel.grid.minor = element_blank(),
+    plot.tag = element_text(face="bold"))
+
+```
+
+```{r plot scr vs seroprev zoom, message = FALSE, warning = FALSE}
+# add bounding box for panel B
+plot_sis_glm_with_box <- plot_sis_glm +
+  geom_rect(aes(xmin=-0.2,xmax=5.2,ymin=-0.2, ymax=5.2), color="black",fill=NA,linewidth=0.2) +
+  geom_segment(aes(x=6,xend=29,y=2,yend=2), arrow = arrow(length=unit(0.3,"cm")),linewidth=0.2) 
+
+# zoom in to the SCR <=5 range
+plot_sis_glm_zoom <- plot_sis_glm +
+  scale_x_continuous(breaks=0:5) +
+  scale_y_continuous(breaks=0:5) +
+  coord_cartesian(xlim=c(0,5),ylim=c(0,5)) +
+  labs(tag=" ") +
+  theme(legend.position = "none")
+
+
+plot_sis_glm_comp <-  plot_sis_glm_with_box + plot_sis_glm_zoom + guide_area() +
+  plot_layout(ncol=2,nrow=2, widths = c(1,1), guides = "collect")
+
+ggsave(filename=here("output","FigS7.png"),plot_sis_glm_comp,device = "png",height=160,width=180, units="mm")
+
+```
+
+# Session Info
+```{r session info}
+sessionInfo()
+```
+

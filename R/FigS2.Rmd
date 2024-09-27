@@ -1,0 +1,123 @@
+---
+title: "Trachoma serology threshold analysis"
+subtitle: "Comparison of SCR estimates with seroprevalence"
+author: "Ben Arnold ben.arnold@ucsf.edu"
+date: "updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+# Summary
+
+In this analysis, we compare evaluation unit (EU) level seroconversion rate (SCR) estimates with seroprevalence.
+
+Estimates were saved from scripts
+`1-estimate-seroprev.R` and
+`2-estimate-scr-glm.R` .  
+
+This markdown file simply summarizes the estimates using figures.
+
+# Preamble
+
+```{r preamble, message = FALSE}
+#-----------------------------------------
+# Source project config file
+# and project functions
+#-----------------------------------------
+library(here)
+source(here("R/0-config.R"))
+source(here("R/0-functions.R"))
+```
+
+# Load estimates
+
+```{r load previous scr estimates}
+#-------------------------------
+# load the SCR estimates 1-5y
+# for the two modeling strategies
+# 
+# there is a single estimate for
+# each evaluation unit (EU)
+#-------------------------------
+d_scr_1to5 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-1to5.rds"))
+d_sp_1to5 <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-1to5.rds"))
+
+#-------------------------------
+# merge the estimates
+#
+# for analyses with 0 seropositive
+# the SCR model will have not
+# converged. Can set this to 0
+#-------------------------------
+d <- d_scr_1to5 %>%
+  select(-npos,-nchild,-ncluster) %>%
+  left_join(d_sp_1to5, by = join_by(study_id, country, eu_name, trachoma_cat)) 
+
+```
+
+# Plot SCR with and without seroreversion
+
+## All EUs
+
+```{r plot scr vs seroprev}
+
+# fit a linear model over the range of 0-25%
+dim(d %>% filter(seroprev<=0.25))
+fit_sp_glm <- lm(scr ~ seroprev, data = d %>% filter(seroprev<=0.25) )
+summary(fit_sp_glm)
+d_pred <- data.frame(seroprev=seq(0,0.50,by=0.01),trachoma_cat="Unclassified")
+d_pred$pred <-predict(fit_sp_glm, newdata = d_pred)
+
+pcols <- c("#A42820", "cadetblue","gray95") 
+plot_sp_scr <- ggplot(data=d, aes(x=seroprev*100,y=scr*100, fill = trachoma_cat)) + 
+  geom_point(pch=21, size = 2.5, alpha=0.8) +
+  scale_y_continuous(breaks=seq(0,22,by=2)) +
+  scale_x_continuous(breaks=seq(0,50,by=5)) +
+  scale_fill_manual(values = pcols) + 
+  coord_cartesian(xlim=c(0,50),ylim=c(0,22)) +
+  labs(x = "Seroprevalence (%)", y = "SCR per 100 person-years", tag = " ", 
+       fill = "EU category") +
+  theme_minimal() +
+  theme(legend.position = "left",
+        panel.grid.minor = element_blank(),
+        plot.tag = element_text(face="bold"))
+
+```
+
+```{r plot scr vs seroprev zoom, message = FALSE, warning = FALSE}
+# add bounding box for panel B
+plot_sp_scr_with_box <- plot_sp_scr +
+  geom_rect(aes(xmin=-1,xmax=10,ymin=-1, ymax=4), color="black",fill=NA,linewidth=0.2) +
+  # annotate("text",x=0.5, y=4.5, label="B",fontface="bold")
+    geom_segment(aes(x=11,xend=49,y=1,yend=1), arrow = arrow(length=unit(0.3,"cm")),linewidth=0.2) 
+
+
+# zoom in to the SCR <=5 range
+plot_sp_scr_zoom <- plot_sp_scr +
+  scale_x_continuous(breaks=seq(0,12,by=2)) +
+  scale_y_continuous(breaks=0:5) +
+  coord_cartesian(xlim=c(0,10),ylim=c(0,4)) +
+  labs(tag=" ") +
+  theme(legend.position = "none")
+
+
+plot_sp_scr_comp <-  plot_sp_scr_with_box + plot_sp_scr_zoom + guide_area() +
+  plot_layout(ncol=2,nrow=2, widths = c(1,1), guides = "collect")
+plot_sp_scr_comp
+ggsave(filename=here("output","FigS2.png"),plot_sp_scr_comp,device = "png",height=160,width=180, units="mm")
+
+```
+
+# Session Info
+```{r session info}
+sessionInfo()
+```
+

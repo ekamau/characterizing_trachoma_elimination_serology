@@ -1,0 +1,722 @@
+---
+title: "Trachoma serology threshold analysis"
+subtitle: "Comparison of seroprevalence and SCR estimates from age ranges 1-3, 1-5 and 1-9 years"
+author: "Ben Arnold ben.arnold@ucsf.edu"
+date: "updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+# Summary
+In this analysis, we compare evaluation unit (EU) level seroprevalence and seroconversion rate (SCR) estimates using different age ranges: 1 to 3 years old, 1 to 5 years old and 1 to 9 years old.
+Estimates were saved from scripts `1-estimate-seroprev.R` and `2-estimate-scr-glm.R`.  This markdown file simply summarizes the estimates using figures.
+
+# Preamble
+
+```{r preamble, message = FALSE}
+#-----------------------------------------
+# Source project config file and project functions 
+#-----------------------------------------
+library(here)
+source(here("R/0-config.R"))
+source(here("R/0-functions.R"))
+```
+
+# Seroprevalence
+## Load estimates
+
+```{r load previous estimates}
+#-------------------------------
+# load the SCR estimates for the two age ranges
+# -there is a single estimate for each evaluation unit (EU)
+#-------------------------------
+d_sp_1to3 <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-1to3.rds"))
+d_sp_1to5 <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-1to5.rds"))
+d_sp_1to9 <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-1to9.rds"))
+
+#-------------------------------
+# exclude EUs that are not contributing to current analysis
+#-------------------------------
+d_sp_1to3 <- d_sp_1to3 %>% filter(!study_id %in% c("DRC2018","TCC-Niger2022"))
+d_sp_1to5 <- d_sp_1to5 %>% filter(!study_id %in% c("DRC2018","TCC-Niger2022"))
+d_sp_1to9 <- d_sp_1to9 %>% filter(!study_id %in% c("DRC2018","TCC-Niger2022"))
+
+```
+
+```{r load and process individual data}
+#-------------------------------
+# also load the individual level data which is needed to plot age distributions
+#-------------------------------
+ind_df <- read_rds("/trachoma_serology_public_data_indiv_devel.rds")
+
+#-------------------------------
+# exclude EUs that are not contributing to current analysis
+#-------------------------------
+ind_df2 <- ind_df %>% filter(!study_id %in% c("DRC2018","TCC-Niger2022"))
+
+#-----------------------------------------
+# create a categorical variable to group EUs 
+# the make_trachoma_cat() function is a shared function 0-functions.R
+#-----------------------------------------
+ind_df3 <- make_trachoma_cat(ind_df2)
+
+```
+
+
+```{r limit to tropical data style surveys }
+#-------------------------------
+# seroprevalence ests do not have EU description field in them
+# join on that information from the individual level data
+#-------------------------------
+d_sp_1to3 <- d_sp_1to3 %>%
+  left_join(ind_df3 %>% select(study_id,eu_name,eu_desc) %>% distinct(), join_by(study_id,eu_name))
+d_sp_1to5 <- d_sp_1to5 %>%
+  left_join(ind_df3 %>% select(study_id,eu_name,eu_desc) %>% distinct(), join_by(study_id,eu_name))
+d_sp_1to9 <- d_sp_1to9 %>%
+  left_join(ind_df3 %>% select(study_id,eu_name,eu_desc) %>% distinct(), join_by(study_id,eu_name))
+
+#-------------------------------
+# stack the data for plotting convenience
+#-------------------------------
+d_sp <- d_sp_1to3 %>%
+  mutate(age_range = "1 to 3 years") %>%
+  bind_rows(d_sp_1to5) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 5 years",age_range)) %>%
+  bind_rows(d_sp_1to9) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 9 years",age_range),
+         age_range = factor(age_range)) 
+
+#-------------------------------
+# drop the RCTs
+#-------------------------------
+d_sp2 <- d_sp %>% filter(eu_desc != "RCT")
+
+```
+
+## Create a summary sample of sizes by age ranges
+
+Limit to surveys that have generally followed the tropical data survey methodology
+
+```{r seroprev sample sizes}
+#-------------------------------
+# bind the 3 age group sample sizes together into wide format
+#-------------------------------
+d_sp_wide <- d_sp2 %>%
+  filter(age_range == "1 to 9 years") %>%
+  select(study_id, eu_name, eu_desc, trachoma_cat,
+         ncluster1to9 = ncluster, nchild1to9 = nchild, npos1to9 = npos) %>%
+  left_join(d_sp_1to5 %>% select(study_id, eu_name, eu_desc, trachoma_cat,
+                                 ncluster1to5 = ncluster, nchild1to5 = nchild, npos1to5 = npos),
+            by=c("study_id","eu_name","eu_desc","trachoma_cat")) %>%
+  left_join(d_sp_1to3 %>% select(study_id, eu_desc, eu_name, trachoma_cat,
+                                 ncluster1to3 = ncluster, nchild1to3 = nchild, npos1to3 = npos),
+            by=c("study_id","eu_name","eu_desc","trachoma_cat"))
+
+#-------------------------------
+# drop the RCTs, further exclude 3 EUs b/c tiny:
+# TCC 2017 survey in Woreta Town; Malaysia Sabah
+# check on: "Papua New Guinea-Mendi-2015","Kiribati-Kiritimati-2016"
+# exclude Gambia 2014 as it preceded tropical data methodology
+#-------------------------------
+d_sp_wide2 <- d_sp_wide %>%
+  filter(eu_desc != "RCT") %>%
+         # !eu_name %in% c("Ethiopia-Woreta Town-2017","Gambia-River Regions-2014","Malaysia-Sabah-2015")) %>%
+  arrange(nchild1to5,npos1to5)
+
+```
+
+```{r summarize children per cluster}
+#-------------------------------
+# calculate the median children and median number of sero positives in each age range
+# and average number of children / cluster
+#-------------------------------
+d_sp_wide3 <- d_sp_wide2 %>%
+  mutate(nchild4to5 = nchild1to5-nchild1to3,
+         nchild6to9 = nchild1to9-nchild1to5) %>%
+  mutate(chpercl1to9 = nchild1to9 / ncluster1to9,
+         chpercl1to5 = nchild1to5 / ncluster1to5,
+         chpercl1to3 = nchild1to3 / ncluster1to3,
+         chpercl4to5 = nchild4to5 / ncluster1to9,
+         chpercl6to9 = nchild6to9 / ncluster1to9
+         )
+
+#-------------------------------
+# summarize children per cluster in different age ranges
+#-------------------------------
+cat("There are",nrow(d_sp_wide3), "Evaluation Units contributing to the analysis\n\n")
+summary(d_sp_wide3 %>% select(starts_with("chpercl")))
+
+d_childpercl <- d_sp_wide3 %>%
+  select(eu_name, chpercl1to3, chpercl4to5, chpercl6to9) %>%
+  pivot_longer(cols = starts_with("chpercl"), names_to = "age_range", names_prefix = "chpercl", values_to = "nchild") %>%
+  mutate(age_range = factor(age_range, levels = c("6to9","4to5","1to3"), labels = c("6 to 9", "4 to 5", "1 to 3"))) %>%
+  mutate(eu_name = factor(eu_name, levels=d_sp_wide3$eu_name[order(d_sp_wide3$chpercl1to9,decreasing=FALSE)]))
+
+plot_childpercl <- ggplot(data=d_childpercl, aes(x=eu_name, y=nchild, fill=age_range)) +
+  geom_bar(stat = "identity", alpha=0.7) + 
+  scale_fill_manual(values = cbpal[1:3], guide = guide_legend(title = "Ages", reverse=TRUE)) +
+  geom_hline(yintercept = 10) +
+  geom_hline(yintercept = 20) +
+  geom_hline(yintercept = 30) +
+  scale_y_continuous(breaks=seq(0,65,by=5)) +
+  labs(y = "Average children per cluster",x="") + 
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+```{r summarize samples in 1to3}
+#-------------------------------
+# summarize 1-3 y
+#-------------------------------
+d_sp_low1to3 <- d_sp_1to3 %>%
+  mutate(seroprev1to3 = paste0( sprintf("%1.1f",seroprev*100)),
+         seroprev1to3ci = paste0("(", sprintf("%1.1f",seroprev_min95*100),
+                                ",  ",sprintf("%1.1f",seroprev_max95*100),")")
+         ) %>%
+  arrange(study_id,eu_name) %>%
+  select(eu_name, ncluster,nchild,npos, seroprev1to3, seroprev1to3ci)
+
+kbl(d_sp_low1to3, 
+    caption = "Sample summary for children 1-3 years in lower transmission settings",
+    col.names = c("Study, EU", "N clust","N child", "N Pgp3+","Seroprev","95% CI"),
+    align = "lrrrcc") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+```
+
+```{r summarize samples in 1to5}
+#-------------------------------
+# summarize 1-5y
+#-------------------------------
+d_sp_low1to5 <- d_sp_1to5 %>%
+  mutate(seroprev1to5 = paste0( sprintf("%1.1f",seroprev*100)),
+         seroprev1to5ci = paste0("(", sprintf("%1.1f",seroprev_min95*100),
+                                ",  ",sprintf("%1.1f",seroprev_max95*100),")")
+         ) %>%
+  arrange(study_id,eu_name) %>%
+  select(eu_name, ncluster,nchild,npos, seroprev1to5, seroprev1to5ci)
+
+kbl(d_sp_low1to5, 
+    caption = "Sample summary for children 1-5 years in lower transmission settings",
+    col.names = c("Study, EU", "N clust","N child", "N Pgp3+","Seroprev","95% CI"),
+    align = "lrrrcc") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+```
+## Summarize age distributions
+
+```{r summarize age distributions by survey}
+#-------------------------------
+# limit the analysis to EUs that followed the TropData methodology approx
+#-------------------------------
+ind_df4 <- ind_df3 %>% filter(eu_desc != "RCT")
+
+#-------------------------------
+# get the percentage of children at each year of age by EU
+#-------------------------------
+eu_age_sum <- ind_df4 %>%
+  group_by(eu_name, age_years) %>%
+  summarize(nobs = sum(!is.na(pgp3_pos)), 
+            npos = sum(pgp3_pos, na.rm = TRUE),
+            .groups = "drop") %>%
+  group_by(eu_name) %>%
+  mutate(totobs = sum(nobs),
+         agepct = nobs/totobs,
+         seroprev = npos/nobs)
+
+plot_age_dists <- ggplot(eu_age_sum, aes(x = age_years )) +
+  facet_wrap(~eu_name, ncol=6) +
+  # geom_histogram(aes(y=..density..),bins=40) + 
+  geom_bar(aes(y = agepct*100), stat = "identity", alpha = 0.8) +
+  geom_hline(yintercept = 11) +
+  labs(x = "Age in years", y = "percentage of children (%)") +
+  scale_x_continuous(breaks=1:9) +
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank(), 
+    strip.text = element_text(size=8)
+  )
+
+```
+
+## Age-standardized vs raw seroprev
+
+```{r estimate age standardized seroprev}
+#-------------------------------
+# get age-standardizes seroprev assuming uniform ages for 1-9, 1-5, 1-3
+#-------------------------------
+eu_sp_std1to9 <- eu_age_sum %>%
+  mutate(wgt_serop = seroprev*(totobs/9)) %>%
+  group_by(eu_name) %>%
+  summarize(wgt_serop1to9 = sum(wgt_serop),
+            nobs = sum(nobs)) %>%
+  mutate(seroprev_std1to9 = wgt_serop1to9/nobs)
+
+eu_sp_std1to5 <- eu_age_sum %>%
+  filter(age_years <= 5) %>%
+  group_by(eu_name) %>%
+  mutate(totobs = sum(nobs)) %>%
+  mutate(wgt_serop = seroprev*(totobs/5)) %>%
+  summarize(wgt_serop1to5 = sum(wgt_serop),
+            nobs = sum(nobs)) %>%
+  mutate(seroprev_std1to5 = wgt_serop1to5/nobs)
+
+eu_sp_std1to3 <- eu_age_sum %>%
+  filter(age_years <= 3) %>%
+  group_by(eu_name) %>%
+  mutate(totobs = sum(nobs)) %>%
+  mutate(wgt_serop = seroprev*(totobs/3)) %>%
+  summarize(wgt_serop1to3 = sum(wgt_serop),
+            nobs = sum(nobs)) %>%
+  mutate(seroprev_std1to3 = wgt_serop1to3/nobs)
+
+#-------------------------------
+# join the unstandardized estimates calculate and summarize differences
+#-------------------------------
+eu_sp_std1to9 <- eu_sp_std1to9 %>%
+  left_join(d_sp_1to9, by = "eu_name") %>%
+  mutate(seroprev_diff = seroprev_std1to9 - seroprev)
+eu_sp_std1to5 <- eu_sp_std1to5 %>%
+  left_join(d_sp_1to5, by = "eu_name") %>%
+  mutate(seroprev_diff = seroprev_std1to5 - seroprev)
+eu_sp_std1to3 <- eu_sp_std1to3 %>%
+  left_join(d_sp_1to3, by = "eu_name") %>%
+  mutate(seroprev_diff = seroprev_std1to3 - seroprev)
+
+summary(eu_sp_std1to9)
+summary(eu_sp_std1to5)
+summary(eu_sp_std1to3)
+
+#-------------------------------
+# summarize the number of children included in each age range
+#-------------------------------
+cat("\nNumber of children 1-3y analyzed:\n",sum(eu_sp_std1to3$nchild))
+cat("\nNumber of children 1-5y analyzed:\n",sum(eu_sp_std1to5$nchild))
+cat("\nNumber of children 1-9y analyzed:\n",sum(eu_sp_std1to9$nchild))
+```
+
+```{r plot age standardized vs not}
+
+#-------------------------------
+# bind estimates into a single data frame to make the plot
+#-------------------------------
+d_seroprev_std <- eu_sp_std1to9 %>%
+  select(eu_name,seroprev,seroprev_std=seroprev_std1to9) %>%
+  mutate(age_range = "1 to 9 years") %>%
+  bind_rows(eu_sp_std1to5 %>% select(eu_name,seroprev,seroprev_std=seroprev_std1to5) ) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 5 years", age_range)) %>%
+  bind_rows(eu_sp_std1to3 %>% select(eu_name,seroprev,seroprev_std=seroprev_std1to3) ) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 3 years", age_range))
+  
+#-------------------------------
+# plot age standardized vs unstandarized
+#-------------------------------
+
+plot_seroprev_std <- ggplot(data = d_seroprev_std, aes(x = seroprev, y = seroprev_std)) +
+  facet_grid(age_range~.) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  geom_point(pch=19,color=cbpal[6],alpha=0.5) +
+  scale_x_continuous(breaks=seq(0,0.6,by=0.1),labels=seq(0,60,by=10)) +
+  scale_y_continuous(breaks=seq(0,0.6,by=0.1),labels=seq(0,60,by=10)) +
+  coord_cartesian(xlim=c(0,0.6),ylim=c(0,0.6)) +
+  labs(y="Seroprevalence, age standardized (%)", x = "Seroprevalence, no age standardization (%)", tag="A")+ 
+  theme_minimal() +
+  theme(panel.grid.minor=element_blank(),
+        strip.text.y = element_text(angle=0))
+
+# add bounding box for panel B
+plot_seroprev_std_box <- plot_seroprev_std +
+  geom_rect(aes(xmin=-0.01,xmax=0.21,ymin=-0.01, ymax=0.21), color="gray50",fill=NA,linewidth=0.2) +
+  geom_segment(aes(x=0.24,xend=0.55,y=0.1,yend=0.1), arrow = arrow(length=unit(0.3,"cm")),linewidth=0.2,color="gray50") 
+
+plot_seroprev_std_zoom <- plot_seroprev_std +
+  scale_x_continuous(breaks=seq(0,0.2,by=0.02),labels=seq(0,20,by=2)) +
+  scale_y_continuous(breaks=seq(0,0.2,by=0.02),labels=seq(0,20,by=2)) +
+  coord_cartesian(xlim=c(0,0.2),ylim=c(0,0.2)) +
+  labs(y="Seroprevalence, age standardized (%)",x = "Seroprevalence, no age standardization (%)", tag="B") 
+
+plot_seroprev_std_comp <- plot_seroprev_std_box + plot_seroprev_std_zoom + plot_layout(ncol=2,nrow=1)
+
+### -- FigS9
+ggsave(filename=here("output","FigS9.png"),plot_seroprev_std_comp,device = "png",height=180,width=180, units="mm")
+
+```
+
+## Plot estimates by EU
+### All EUs
+Plot all seroprevalence estimates
+
+```{r plot sp by EU, fig.width=10, fig.height = 8}
+#-------------------------------
+# plot seroprev in the three age ranges
+#-------------------------------
+# order estimates by seroprev in 1-5 year olds
+d_sp_plot <- d_sp2 %>%
+  mutate(eu_name = factor(eu_name, levels=d_sp_1to5$eu_name[order(d_sp_1to5$seroprev,decreasing=FALSE)]),
+         grp_nudge = case_when(
+           age_range == "1 to 3 years" ~ -0.2,
+           age_range == "1 to 5 years" ~ 0,
+           age_range == "1 to 9 years" ~ 0.2),
+         grp_lwd = case_when(
+           age_range == "1 to 3 years" ~ 0.5,
+           age_range == "1 to 5 years" ~ 1,
+           age_range == "1 to 9 years" ~ 0.5)
+         ) %>%
+  arrange(eu_name,age_range) 
+  
+# colors (pink, black, orange)
+pcols <- c(cbpal[8],"black",cbpal[2])
+
+plot_sp_by_eu <- ggplot(data=d_sp_plot,aes(x=eu_name,color=age_range))  +
+  geom_errorbar(aes(ymin=seroprev_min95*100,ymax=seroprev_max95*100),
+                width=0.3, lwd = d_sp_plot$grp_lwd,
+                position = position_nudge(x=d_sp_plot$grp_nudge)) +
+  geom_point(aes(y=seroprev*100), position = position_nudge(x=d_sp_plot$grp_nudge)) +
+  scale_color_manual(values=pcols) +
+  scale_y_continuous(breaks=seq(0,60,by=10)) +
+  labs(x="",y="Seroprevalence (%)")+
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size=12,angle = 0),
+    axis.title.x = element_text(size=12)
+  )
+
+```
+
+
+Remove 95% CIs to help make the plot easier to read. Make a lollipop version
+
+```{r lollipop seroprev nonendemic}
+# pivot seroprev wide for plot
+d_sp_plot_wide <- d_sp_plot %>%
+  select(eu_name,trachoma_cat,age_range,seroprev) %>%
+  pivot_wider(id_cols=c("eu_name","trachoma_cat"),names_from=age_range,values_from=seroprev)
+
+# for presentation, just plot the 1-5y
+plot_sp_by_eu_1to5 <- ggplot(data=d_sp_plot_wide, aes(x=eu_name))  +
+  geom_point(aes(y=`1 to 5 years`*100), color="black", size=2) +
+  scale_y_continuous(breaks=seq(0,18,by=2)) +
+  labs(x="",y="Seroprevalence (%)")+
+  coord_cartesian(ylim=c(0,18)) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    axis.text.y = element_text(size=12),
+    axis.text.x = element_text(size=10,angle = 90, hjust=1, vjust=0.5),
+    axis.title = element_text(size=12)
+  )
+
+# for presentation, plot 1 to 5 plus 1 to 3
+plot_sp_by_eu_1to5and1to3 <- plot_sp_by_eu_1to5 +
+  # draw the 5-3 gap, color pink
+  geom_segment( aes(x=eu_name, xend=eu_name, y=`1 to 5 years`*100, yend=`1 to 3 years`*100), color=cbpal[8], lwd=1) +
+  geom_point(aes(y=`1 to 3 years`*100), size=2, color=cbpal[8]) +
+  geom_point(aes(y=`1 to 5 years`*100), color="black", size=2)
+
+# for presentation, plot 1 to 5 plus 1 to 9
+plot_sp_by_eu_1to5and1to9 <- plot_sp_by_eu_1to5 +
+  # draw the 5-9 gap, color orange
+  geom_segment( aes(x=eu_name, xend=eu_name, y=`1 to 5 years`*100, yend=`1 to 9 years`*100), color=cbpal[2], lwd=1) +
+  geom_point(aes(y=`1 to 9 years`*100), size=2, color=cbpal[2]) +
+  geom_point(aes(y=`1 to 5 years`*100), color="black", size=2)
+
+plot_sp_by_eu_lollipop <- ggplot(data=d_sp_plot_wide, aes(x=eu_name))  +
+  # draw the 5-9 gap, color orange
+  geom_segment( aes(x=eu_name, xend=eu_name, y=`1 to 5 years`*100, yend=`1 to 9 years`*100), color=cbpal[2], lwd=1) +
+  geom_point(aes(y=`1 to 9 years`*100), size=2, color=cbpal[2]) +
+  # draw the 5-3 gap, color pink
+  geom_segment( aes(x=eu_name, xend=eu_name, y=`1 to 5 years`*100, yend=`1 to 3 years`*100), color=cbpal[8], lwd=1) +
+  geom_point(aes(y=`1 to 3 years`*100), size=2, color=cbpal[8]) +
+  # draw the 1-5 year olds
+    geom_point(aes(y=`1 to 5 years`*100), color="black", size=2) +
+  scale_y_continuous(breaks=seq(0,60,by=10)) +
+  labs(x="",y="Seroprevalence (%)")+
+  coord_flip(ylim=c(0,60)) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size=10),
+    axis.title = element_text(size=12)
+  )
+plot_sp_by_eu_lollipop
+
+```
+
+## Scatter plots
+
+```{r scatter plot 1to5 and 1to9}
+#-------------------------------
+# plot SCR in the different age ranges 1-9 v 1-5y
+#-------------------------------
+pcols <- cbpal[6]
+plot_sp_scatter_1to5_1to9 <- ggplot(data=d_sp_plot_wide) +
+  
+  geom_point(aes(x=`1 to 5 years`*100,y=`1 to 9 years`*100), 
+             # pch=21,size=2, color="black",alpha=0.8, fill=pcols
+             pch=16,size=2,alpha=0.8, color=pcols
+             ) +
+  geom_abline(intercept=0,slope=1, color="gray50",linetype = "dashed") + 
+  geom_smooth(aes(x=`1 to 5 years`*100,y=`1 to 9 years`*100),lwd=0.3,color="gray40",method="loess",se=FALSE) +
+  scale_color_manual(values=pcols) +
+  scale_fill_manual(values=pcols) +
+  labs(x="Seroprevalence (%), 1 to 5 years",y="Seroprevalence (%), 1 to 9 years",
+       tag="A") +
+  scale_x_continuous(breaks=seq(0,60,by=10)) +
+  scale_y_continuous(breaks=seq(0,60,by=10)) +
+  coord_cartesian(ylim=c(0,60),xlim=c(0,60)) +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size=12),
+    # panel.grid.minor = element_blank()
+  )
+
+
+#-------------------------------
+# plot SCR in the different age ranges 1-3 vs 1-5y
+#-------------------------------
+pcols <- cbpal[7]
+plot_sp_scatter_1to5_1to3 <- ggplot(data=d_sp_plot_wide) +
+  geom_point(aes(x=`1 to 5 years`*100,y=`1 to 3 years`*100), 
+             # pch=21,size=2, color="black",alpha=0.8, fill=pcols
+             pch=16,size=2,alpha=0.8, color=pcols
+             ) +
+  geom_abline(intercept=0,slope=1, color="gray50",linetype = "dashed") +
+  geom_smooth(aes(x=`1 to 5 years`*100,y=`1 to 3 years`*100),lwd=0.3,color="gray40",method="loess",se=FALSE) +
+  scale_color_manual(values=pcols) +
+  scale_fill_manual(values=pcols) +
+  labs(x="Seroprevalence (%), 1 to 5 years",y="Seroprevalence (%), 1 to 3 years",
+       tag = "C") +
+  scale_x_continuous(breaks=seq(0,60,by=10)) +
+  scale_y_continuous(breaks=seq(0,60,by=10)) +
+  coord_cartesian(ylim=c(0,60),xlim=c(0,60)) +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size=12),
+    # panel.grid.minor = element_blank()
+  )
+
+```
+
+
+# SCR
+In this analysis, we compare evaluation unit (EU) level estimates of the seroconversion rate (SCR) estimated from age-seroprevalence curves with two different age ranges: 1 to 3 years old, 1 to 5 years old and 1 to 9 years old. All estimates assume a constant SCR over the age range.
+
+The model assumes a constant SCR ($\lambda$), and the proportion of children that are seropositive ($Y=1$) as a function of age ($A$) is:
+
+\begin{equation}
+P(Y=1|A) = 1-\exp(-\lambda \cdot A)
+\end{equation}
+
+Note, this is equivalent to assuming a Susceptible-Infected-Recovered (SIR) mechanistic model. 
+
+A convenient feature of this model is that we can estimate $\lambda$ using a generalized linear model with complementary log-log link and age as the intercept (see van der Laan and Jewell 1995 for details https://pubmed.ncbi.nlm.nih.gov/9385086/). 
+
+
+## Load estimates
+
+```{r load previous scr estimates}
+#-------------------------------
+# load the SCR estimates for the two age ranges there is a single estimate for each EU
+#-------------------------------
+d_scr_1to3 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-1to3.rds"))
+d_scr_1to5 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-1to5.rds"))
+d_scr_1to9 <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-1to9.rds"))
+
+#-------------------------------
+# exclude EUs that are not contributing to current analysis
+#-------------------------------
+d_scr_1to3 <- d_scr_1to3 %>% filter(!study_id %in% c("DRC2018","TCC-Ethiopia2019","TCC-Niger2022"))
+d_scr_1to5 <- d_scr_1to5 %>% filter(!study_id %in% c("DRC2018","TCC-Ethiopia2019","TCC-Niger2022"))
+d_scr_1to9 <- d_scr_1to9 %>% filter(!study_id %in% c("DRC2018","TCC-Ethiopia2019","TCC-Niger2022"))
+
+#-------------------------------
+# seroprevalence ests do not have EU description field in them join on that information from
+# the individual level data
+#-------------------------------
+d_scr_1to3 <- d_scr_1to3 %>%
+  left_join(ind_df3 %>% select(study_id,eu_name,eu_desc) %>% distinct(), join_by(study_id,eu_name))
+d_scr_1to5 <- d_scr_1to5 %>%
+  left_join(ind_df3 %>% select(study_id,eu_name,eu_desc) %>% distinct(), join_by(study_id,eu_name))
+d_scr_1to9 <- d_scr_1to9 %>%
+  left_join(ind_df3 %>% select(study_id,eu_name,eu_desc) %>% distinct(), join_by(study_id,eu_name))
+
+
+#-------------------------------
+# stack the data for plotting convenience for anaylses with 0 seropositive
+# the SCR model will have not converged. Can set this to 0
+#-------------------------------
+d_scr <- d_scr_1to3 %>%
+  mutate(age_range = "1 to 3 years") %>%
+  bind_rows(d_scr_1to5) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 5 years",age_range)) %>%
+  bind_rows(d_scr_1to9) %>%
+  mutate(age_range = ifelse(is.na(age_range),"1 to 9 years",age_range),
+         age_range = factor(age_range)) %>%
+  # set zero seropos to zero SCR
+  mutate(scr = ifelse(npos == 0, 0, scr),
+         scr_min95 = ifelse(npos==0,0,scr_min95),
+         scr_max95 = ifelse(npos==0,0,scr_max95)
+         )
+
+#-------------------------------
+# drop the RCTs
+#-------------------------------
+d_scr <- d_scr %>%
+  filter(eu_desc != "RCT")
+
+```
+
+## Plot estimates by EU
+### All EUs
+Plot all SCR estimates
+
+```{r plot SCR by EU, fig.width=10, fig.height = 8}
+#-------------------------------
+# plot SCRs in the three age ranges
+#-------------------------------
+# order estimates by SCR in 1-5 year olds
+d_scr_plot <- d_scr %>%
+  mutate(eu_name = factor(eu_name, levels=d_scr_1to5$eu_name[order(d_scr_1to5$scr,decreasing=FALSE)]),
+         grp_nudge = case_when(
+           age_range == "1 to 3 years" ~ -0.2,
+           age_range == "1 to 5 years" ~ 0,
+           age_range == "1 to 9 years" ~ 0.2),
+         grp_lwd = case_when(
+           age_range == "1 to 3 years" ~ 0.5,
+           age_range == "1 to 5 years" ~ 1,
+           age_range == "1 to 9 years" ~ 0.5),
+         ) %>%
+  arrange(eu_name,age_range) 
+  
+
+# colors (pink, black, orange)
+pcols <- c(cbpal[8],"black",cbpal[2])
+
+plot_scr_by_eu <- ggplot(data=d_scr_plot,aes(x=eu_name,color=age_range))  +
+  geom_errorbar(aes(ymin=scr_min95*100,ymax=scr_max95*100), width=0.3,
+                lwd = d_scr_plot$grp_lwd, position = position_nudge(x=d_scr_plot$grp_nudge)) +
+  geom_point(aes(y=scr*100),
+             position = position_nudge(x=d_scr_plot$grp_nudge)) +
+  scale_color_manual(values=pcols) +
+  scale_y_continuous(breaks=seq(0,30,by=2)) +
+  labs(x="",y="seroconversion rate per 100 child-years")+
+  coord_flip(ylim=c(0,30)) +
+  theme_minimal() +
+  theme(legend.position = "top",
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(size=12,angle = 0),
+        axis.title.x = element_text(size=12))
+
+```
+
+Remove 95% CIs to help make the plot easier to read. Make a lollipop version
+
+```{r lollipop scr nonendemic}
+# pivot SCRs wide for plot
+d_scr_plot_wide <- d_scr_plot %>%
+  filter(trachoma_cat != "Endemic") %>%
+  select(eu_name,trachoma_cat,age_range,scr) %>%
+  pivot_wider(id_cols=c("eu_name","trachoma_cat"),names_from=age_range,values_from=scr)
+
+plot_scr_by_eu_lollipop <- ggplot(data=d_scr_plot_wide, aes(x=eu_name))  +
+  # draw the 5-9 gap, color orange
+  geom_segment( aes(x=eu_name, xend=eu_name, y=`1 to 5 years`*100, yend=`1 to 9 years`*100), color=cbpal[2], lwd=1) +
+  geom_point(aes(y=`1 to 9 years`*100), size=2, color=cbpal[2]) +
+  # draw the 5-3 gap, color pink
+  geom_segment( aes(x=eu_name, xend=eu_name, y=`1 to 5 years`*100, yend=`1 to 3 years`*100), color=cbpal[8], lwd=1) +
+  geom_point(aes(y=`1 to 3 years`*100), size=2, color=cbpal[8]) +
+  # draw the 1-5 year olds
+    geom_point(aes(y=`1 to 5 years`*100), color="black", size=2) +
+  scale_y_continuous(breaks=seq(0,24,by=4)) +
+  labs(x="",y="SCR per 100 child-years")+
+  coord_flip(ylim=c(0,24)) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    axis.text.y = element_text(size=12),
+    axis.text.x = element_text(size=10,angle = 90, hjust=1, vjust=0.5),
+    axis.title = element_text(size=12)
+  )
+
+```
+
+## Scatter plots
+
+```{r scr scatter plot 1to5 and 1to9}
+#-------------------------------
+# plot SCR in the different age ranges 1-9 vs 1-5y
+#-------------------------------
+pcols <- cbpal[6]
+plot_scr_scatter_1to5_1to9 <- ggplot(data=d_scr_plot_wide) +
+  geom_point(aes(x=`1 to 5 years`*100,y=`1 to 9 years`*100), 
+             pch=16,size=2,alpha=0.8, color=pcols) +
+  geom_abline(intercept=0,slope=1, color="gray50",linetype = "dashed") +
+  geom_smooth(aes(x=`1 to 5 years`*100,y=`1 to 9 years`*100),lwd=0.3,color="gray40",method="loess",se=FALSE) +
+  scale_color_manual(values=pcols) +
+  scale_fill_manual(values=pcols) +
+  labs(x="SCR per 100 person-years, 1 to 5 years",y="SCR per 100 person-years, 1 to 9 years",
+       tag="B") +
+  scale_x_continuous(breaks=seq(0,24,by=4)) +
+  scale_y_continuous(breaks=seq(0,24,by=4)) +
+  coord_cartesian(ylim=c(0,24),xlim=c(0,24)) +
+  theme_minimal() +
+  theme(axis.text = element_text(size=12),
+        legend.position = "left",
+        panel.grid.minor = element_blank())
+
+
+#-------------------------------
+# plot SCR in the different age ranges 1-3 vs 1-5y
+#-------------------------------
+pcols <- cbpal[7]
+plot_scr_scatter_1to5_1to3 <- ggplot(data=d_scr_plot_wide) +
+  geom_point(aes(x=`1 to 5 years`*100,y=`1 to 3 years`*100), 
+             pch=16,size=2,alpha=0.8, color=pcols) +
+  geom_abline(intercept=0,slope=1, color="gray50",linetype = "dashed") + 
+  geom_smooth(aes(x=`1 to 5 years`*100,y=`1 to 3 years`*100),lwd=0.3,color="gray40",method="loess",se=FALSE) +
+  scale_color_manual(values=pcols) +
+  scale_fill_manual(values=pcols) +
+  labs(x="SCR per 100 person-years, 1 to 5 years",y="SCR per 100 person-years, 1 to 3 years",
+       tag="D") +
+  scale_x_continuous(breaks=seq(0,24,by=4)) +
+  scale_y_continuous(breaks=seq(0,24,by=4)) +
+  coord_cartesian(ylim=c(0,24),xlim=c(0,24)) +
+  theme_minimal() +
+  theme(axis.text = element_text(size=12),
+        legend.position = "left",
+        panel.grid.minor = element_blank())
+
+#-------------------------------
+# make a composite figure, including seroprevalence and SCR all in one figure
+#-------------------------------
+plot_sp_scr_scatter_comp <-  plot_sp_scatter_1to5_1to9 + 
+  plot_scr_scatter_1to5_1to9 + 
+  plot_sp_scatter_1to5_1to3 + 
+  plot_scr_scatter_1to5_1to3 + 
+  plot_layout(ncol=2,nrow=2)
+plot_sp_scr_scatter_comp
+
+ggsave(filename=here("output","FigS5.png"),plot_sp_scr_scatter_comp,device = "png",height=180,width=180, units="mm")
+```
+
+
+# Session Info
+```{r session info}
+sessionInfo()
+```

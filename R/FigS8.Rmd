@@ -1,0 +1,305 @@
+---
+title: "Trachoma serology threshold analyses"
+subtitle: "Comparison of seroprevalence and SCR estimates from Bayesian and Frequentist estimators"
+author: "Ben Arnold ben.arnold@ucsf.edu"
+date: "updated: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+# Summary
+
+In this analysis, we compare evaluation unit (EU) level estimates of seroprevalence and the seroconversion rate (SCR) estimated with two different approaches. A Bayesian estimator using an MCMC approach was used in the primary development of the serology thresholds because developing posterior probabilities of class membership (i.e., post elimination) was a natural extension of the estimator. However, the Bayesian approach requires somewhat sophisticated programming and computing. The Frequentist GLM estimators can be implemented very easily.  
+
+If future studies were to use thresholds developed using the Bayesian approach yet estimate seroprevalence or the SCR using a Frequentist approach, we need to provide assurance that they are consistent!
+
+
+# Preamble
+
+```{r preamble, message = FALSE}
+#-----------------------------------------
+# Source project config file
+# and project functions
+#-----------------------------------------
+library(here)
+source(here("R/0-config.R"))
+source(here("R/0-functions.R"))
+```
+
+# Load estimates
+
+```{r load previous estimates}
+#-------------------------------
+# load the frequentist eroprevalence and SCR estimates
+# there is a single estimate for each evaluation unit (EU)
+#-------------------------------
+d_freq_sp  <- read_rds(file=here("output","trachoma-sero-thresholds-seroprev-estimates-1to5.rds"))
+d_freq_scr <- read_rds(file=here("output","trachoma-sero-thresholds-scr-estimates-glm-1to5.rds"))
+
+#-------------------------------
+# load the Bayesian seroprevalence and SCR estimates
+# there is a single estimate for each evaluation unit (EU)
+#-------------------------------
+d_bayes_sp <- read_csv(file=here("output/output_ages_1to5/bayesian_seroprev_estimates/","bayesian_seroprev_posterior_summary-1to5yo.csv"))
+d_bayes_scr <- read_csv(file=here("output/output_ages_1to5/bayesian_scr_estimates","bayes_SCR_estimates_summary_1to5yo_AllEUs.csv"))
+
+#-------------------------------
+# limit the output to EUs that are included in the analysis
+# add trachoma category see make_trachoma_cat() in 0-functions.R
+#-------------------------------
+d_bayes_sp <- d_bayes_sp %>% 
+  rename(eu_name = eu) %>%
+  filter(!eu_name %in% unpublished_EUs) %>%
+  make_trachoma_cat(.)
+
+d_bayes_scr <- d_bayes_scr %>% 
+  rename(eu_name = eu) %>%
+  filter(!eu_name %in% unpublished_EUs) %>%
+  make_trachoma_cat(.)
+
+#-------------------------------
+# confirm frequentist and bayesian estimates have the same number of rows
+#-------------------------------
+(nrow(d_freq_sp) == nrow(d_bayes_sp))
+(nrow(d_freq_scr) == nrow(d_bayes_scr))
+
+#-------------------------------
+# harmonize variable names and stack freq + bayes
+#-------------------------------
+# seroprevalence
+d_freq_sp2 <- d_freq_sp %>%
+  select(eu_name,
+         trachoma_cat, 
+         seroprev, seroprev_min95, seroprev_max95) %>%
+  mutate(estimator = "Frequentist")
+
+d_bayes_sp2 <- d_bayes_sp %>%
+  select(eu_name,
+         trachoma_cat,
+         seroprev = median, 
+         seroprev_min95 = lower, 
+         seroprev_max95 = upper) %>%
+  mutate(estimator = "Bayesian")
+
+d_sp <- d_freq_sp2 %>% bind_rows(d_bayes_sp2)
+
+# SCR
+d_freq_scr2 <- d_freq_scr %>%
+  select(eu_name,
+         trachoma_cat, 
+         scr, scr_min95, scr_max95) %>%
+  mutate(estimator = "Frequentist")
+
+d_bayes_scr2 <- d_bayes_scr %>%
+  select(eu_name,
+         trachoma_cat,
+         scr = `50%`,
+         scr_min95 = `2.5%`,
+         scr_max95 = `97.5%`) %>%
+  mutate(estimator = "Bayesian")
+
+d_scr <- d_freq_scr2 %>% bind_rows(d_bayes_scr2)
+
+```
+
+
+# Plot seroprev estimates by EU
+
+## forest plot with 95% CIs
+```{r plot serop by EU, fig.height=10}
+#-------------------------------
+# plot serop and 95% CI by the two estimators
+#-------------------------------
+# order estimates by Bayesian SCR
+d_sp_plot <- d_sp %>% mutate(eu_name = factor(eu_name, levels=d_freq_sp2$eu_name[order(d_freq_sp2$seroprev,decreasing=FALSE)])) %>%
+  arrange(eu_name,estimator)
+
+# plot
+pcols <- cbpal[c(6,2)]
+plot_sp <- ggplot(data=d_sp_plot,aes(x=eu_name,color=estimator)) +
+  facet_grid(trachoma_cat ~. , scales = "free_y") +
+  geom_errorbar(aes(ymin=seroprev_min95*100,ymax=seroprev_max95*100),
+                width=0.3,
+                position = position_nudge(x=c(0.2,-0.2))) +
+  geom_point(aes(y=seroprev*100),
+             position = position_nudge(x=c(0.2,-0.2))) +
+  scale_color_manual(values=pcols) +
+  scale_y_continuous(breaks=seq(0,60,by=10)) +
+  labs(x="",y="Seroprevalence (%)")+
+  coord_flip(ylim=c(0,60)) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size=12),
+    axis.title.x = element_text(size=12)
+  )
+
+```
+
+
+```{r scatter plot of seroprev by EU}
+#-------------------------------
+# plot seroprev for the two estimators
+#-------------------------------
+# pivot seroprev wide for plot
+d_sp_plot_wide <- d_sp_plot %>%
+  select(eu_name,trachoma_cat,estimator,seroprev) %>%
+  pivot_wider(id_cols=c("eu_name","trachoma_cat"),names_from=estimator,values_from=seroprev)
+
+pcols <- c("#A42820", "cadetblue","gray95") 
+plot_sp_scatter <- ggplot(data=d_sp_plot_wide, aes(fill=trachoma_cat)) +
+  geom_abline(intercept=0,slope=1, color="gray50",linetype = "dashed") + 
+  geom_point(aes(x=`Bayesian`*100,y=`Frequentist`*100), 
+             pch=21,size=2,alpha=0.8) +
+  labs(x="Seroprevalence (%)\nBayesian MCMC estimator",y="GLM estimator\nSeroprevalence (%)",tag="A") +
+  scale_x_continuous(breaks=seq(0,60,by=10)) +
+  scale_y_continuous(breaks=seq(0,60,by=10)) +
+  scale_fill_manual(values=pcols, guide_legend(title="EU category")) +
+  coord_cartesian(ylim=c(0,50),xlim=c(0,50)) +
+  theme_minimal() +
+  theme(axis.text = element_text(size=12),
+        legend.position = "left",
+        panel.grid.minor = element_blank(),
+        plot.tag = element_text(face="bold"))
+
+# add bounding box for panel B
+plot_sp_scatter_with_box <- plot_sp_scatter +
+  geom_rect(aes(xmin=-0.2,xmax=10.2,ymin=-0.2, ymax=10.2), color="black",fill=NA,linewidth=0.2) +
+  geom_segment(aes(x=12,xend=52,y=5,yend=5), arrow = arrow(length=unit(0.3,"cm")),linewidth=0.2) 
+
+
+#-------------------------------
+# same plot, but limit to approaching elimination and post-elimination EUs
+#-------------------------------
+# zoom in to the seroprev <=18 range
+plot_sp_scatter_zoom <- plot_sp_scatter +
+  scale_x_continuous(breaks=seq(0,10,by=2)) +
+  scale_y_continuous(breaks=seq(0,10,by=2)) +
+  coord_cartesian(xlim=c(0,10),ylim=c(0,10)) +
+  labs(tag=" ") +
+  theme(legend.position = "none")
+
+plot_sp_scatter_comp <- plot_sp_scatter_with_box + plot_sp_scatter_zoom + plot_layout(ncol=2,nrow=1, widths = c(1.1,1))
+
+
+```
+
+# Plot SCR estimates by EU
+
+## forest plot with 95% CIs
+```{r plot SCRs by EU, fig.height=10}
+#-------------------------------
+# plot SCRs and 95% CI by the two estimators
+#-------------------------------
+# order estimates by Bayesian SCR
+d_scr_plot <- d_scr %>%
+  mutate(eu_name = factor(eu_name, levels=d_freq_scr2$eu_name[order(d_freq_scr2$scr,decreasing=FALSE)])) %>%
+  arrange(eu_name,estimator)
+
+# plot
+pcols <- cbpal[c(6,2)]
+plot_scrs <- ggplot(data=d_scr_plot,aes(x=eu_name,color=estimator)) +
+  facet_grid(trachoma_cat ~. , scales = "free_y") +
+  geom_errorbar(aes(ymin=scr_min95*100,ymax=scr_max95*100),
+                width=0.3,
+                position = position_nudge(x=c(0.2,-0.2))) +
+  geom_point(aes(y=scr*100),
+             position = position_nudge(x=c(0.2,-0.2))) +
+  scale_color_manual(values=pcols) +
+  scale_y_continuous(breaks=seq(0,24,by=2)) +
+  labs(x="",y="seroconversion rate per 100 child-years")+
+  coord_flip(ylim=c(0,24)) +
+  theme_minimal() +
+  theme(legend.position = "top",
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(size=12),
+        axis.title.x = element_text(size=12))
+
+```
+
+## Scatter plot
+
+```{r scatter plot of SCRs by EU}
+#-------------------------------
+# plot SCRs, scatter
+#-------------------------------
+# pivot SCRs wide for plot
+d_scr_plot_wide <- d_scr_plot %>%
+  select(eu_name, trachoma_cat, estimator,scr) %>%
+  pivot_wider(id_cols=c("eu_name","trachoma_cat"),names_from=estimator,values_from=scr)
+
+pcols <- c("#A42820", "cadetblue","gray95") 
+plot_scr_scatter <- ggplot(data=d_scr_plot_wide, aes(fill = trachoma_cat)) +
+  labs(x="SCR per 100 PY\nBayesian MCMC estimator",y="GLM estimator\nSCR per 100 PY", tag="B") +
+  scale_x_continuous(breaks=seq(0,24,by=4)) +
+  scale_y_continuous(breaks=seq(0,24,by=4)) +
+  coord_cartesian(ylim=c(0,24),xlim=c(0,24)) +
+  theme_minimal() +
+  theme(axis.text = element_text(size=12),
+        legend.position = "none",
+        panel.grid.minor = element_blank(),
+        plot.tag = element_text(face="bold"))
+
+# add bounding box for panel B
+plot_scr_scatter_with_box <- plot_scr_scatter +
+  geom_rect(aes(xmin=-0.2,xmax=5.2,ymin=-0.2, ymax=5.2), color="black",fill="white",linewidth=0.2) +
+  geom_segment(aes(x=6,xend=25,y=2,yend=2), arrow = arrow(length=unit(0.3,"cm")),linewidth=0.2) +
+
+  geom_abline(intercept=0,slope=1, color="gray50",linetype = "dashed") + 
+  geom_point(aes(x=`Bayesian`*100,y=`Frequentist`*100), 
+             pch=21,size=2.5,alpha=0.8
+             ) +
+  scale_fill_manual(values=pcols, guide_legend(title="EU category"))
+
+
+#-------------------------------
+# same plot, but limit to approaching elimination and post-elimination EUs
+#-------------------------------
+# zoom in to the SCR <=5 range
+plot_scr_scatter_zoom <- plot_scr_scatter +
+  geom_abline(intercept=0,slope=1, color="gray50",linetype = "dashed") + 
+  geom_point(aes(x=`Bayesian`*100,y=`Frequentist`*100), 
+             pch=21,size=2.5,alpha=0.8
+             ) +
+  scale_fill_manual(values=pcols, guide_legend(title="EU category")) +
+  scale_x_continuous(breaks=0:5) +
+  scale_y_continuous(breaks=0:5) +
+  coord_cartesian(xlim=c(0,5),ylim=c(0,5)) +
+  labs(tag=" ") +
+  theme(legend.position = "none")
+
+plot_scr_scatter_comp <- plot_scr_scatter_with_box + plot_scr_scatter_zoom + plot_layout(ncol=2,nrow=1, widths = c(1.1,1))
+plot_scr_scatter_comp
+
+```
+
+
+# Composite figure
+```{r plot composite figure}
+#-------------------------------
+# make a composite figure with seroprevalence on top row and scr on the bottom row
+#-------------------------------
+plot_comp <- plot_sp_scatter_with_box + plot_sp_scatter_zoom + 
+  plot_scr_scatter_with_box + plot_scr_scatter_zoom + 
+  guide_area() + plot_annotation(caption = "PY: person-years") +
+  plot_layout(ncol=2, nrow=3, widths = c(1,1), heights = c(1,1,1), guides = "collect")
+  
+ggsave(filename=here("output","FigS8.png"),plot_comp,device = "png",height=220,width=180, units="mm")
+
+```
+
+
+# Session Info
+```{r session info}
+sessionInfo()
+```
+

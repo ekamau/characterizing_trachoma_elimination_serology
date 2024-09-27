@@ -26,7 +26,7 @@ transformed parameters {
 
 model {
   // priors
-  lambda ~ exponential(100); // hyperprior
+  lambda ~ exponential(1); // hyperprior
   clus_foi ~ exponential(1/lambda);
   
   // likelihood

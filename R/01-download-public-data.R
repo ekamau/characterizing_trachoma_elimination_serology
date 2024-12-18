@@ -5,7 +5,7 @@
 # and save them in the local working repository:
 # ~/trachoma-serology/data
 #
-# data are available here: https://osf.io/jmtpz/
+# data are available here: https://osf.io/ykjc4/
 #----------------------------------
 
 

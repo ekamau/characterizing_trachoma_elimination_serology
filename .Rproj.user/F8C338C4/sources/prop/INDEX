@@ -1,6 +1,7 @@
 ~%2Fcharacterizing_trachoma_elimination_serology%2FR%2F0-trachoma-sero-thesholds-RUNALL.sh="495647D0"
 ~%2Fcharacterizing_trachoma_elimination_serology%2FR%2F0-trachoma-sero-thresholds-config.R="C001A42D"
 ~%2Fcharacterizing_trachoma_elimination_serology%2FR%2F0-trachoma-sero-thresholds-functions.R="4FBF91EB"
+~%2Fcharacterizing_trachoma_elimination_serology%2FR%2F01-download-public-data.R="673700DF"
 ~%2Fcharacterizing_trachoma_elimination_serology%2FR%2F1-estimate-seroprev.R="4D641215"
 ~%2Fcharacterizing_trachoma_elimination_serology%2FR%2F1-trachoma-sero-thresholds-estimate-seroprev.R="1C65AF41"
 ~%2Fcharacterizing_trachoma_elimination_serology%2FR%2F10-post-probs-cutoff-estimation-2categories.R="3BCA1305"

@@ -13,6 +13,7 @@ library(here); library(tidyverse)
 #----------------------------
 library(patchwork); library(grid); library(gridExtra); # library(table1)
 library(kableExtra); library(ggridges)
+library(osfr)
 
 #----------------------------
 # stats packages

@@ -17,7 +17,8 @@ source(here("R/0-functions.R"))
 #-----------------------------------------
 # read the individual level dataset
 #-----------------------------------------
-ind_df <- read_rds("trachoma_serology_public_data_indiv_devel.rds")) 
+# make sure to run the script '01-download-public-data.R' first to download the dataset:
+ind_df <- df_v4
 
 #-----------------------------------------
 # rename id variables to remove "public" for programming ease

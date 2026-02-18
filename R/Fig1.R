@@ -13,11 +13,12 @@
 library(here)
 source(here("R/0-config.R"))
 source(here("R/0-functions.R"))
+source(here("R/01-download-public-data.R"))
 
 #-----------------------------------------
 # read the individual level dataset
 #-----------------------------------------
-# make sure to run the script '01-download-public-data.R' first to download the dataset:
+# the script above '01-download-public-data.R' should download the dataset as 'df_v4':
 ind_df <- df_v4
 
 #-----------------------------------------

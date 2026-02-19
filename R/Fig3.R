@@ -28,9 +28,9 @@ tibble(prior_elim, prior_endemic) %>%
   as.data.frame()
 
 
-#' (2) read data:
-prob_elim_df <- read.csv("output/probs_scr_elim-1to5yo-2states.csv")
-prob_endemic_df <- read.csv("output/probs_scr_endemic-1to5yo-2states.csv")
+#' (2) read data: (from the R script "10-post-probs-cutoff-estimation-2categories.R")
+prob_elim_df <- read.csv("probs_scr_elim-1to5yo-2categories.csv")
+prob_endemic_df <- read.csv("probs_scr_endemic-1to5yo-2categories.csv")
 
 prior_elim <- unique(prob_elim_df$prior_set)
 prior_endemic <- unique(prob_endemic_df$prior_set)
@@ -83,7 +83,7 @@ rbind(dfA, dfC) %>%
 
 ggsave(filename = here("output/", "Fig3.png"), width = 5, height = 5, dpi = 300)
 
-write.csv(scr_table_prob, "output/output_ages_1to5/table_probabilities_for_cutoff.csv", row.names = FALSE)
-write.csv(scr_table_prob2, "output/output_ages_1to5/table_probabilities_for_cutoff-prior0.8.csv", row.names = FALSE)
+write.csv(scr_table_prob, "table_probabilities_for_cutoff.csv", row.names = FALSE)
+write.csv(scr_table_prob2, "table_probabilities_for_cutoff-prior0.8.csv", row.names = FALSE)
 
 

@@ -7,8 +7,13 @@
 
 # Notes: Age 1 to 5yo
 
-#+ setup, include=FALSE, echo=FALSE
-knitr::opts_chunk$set(collapse = TRUE, echo = FALSE)
+#------------------------------
+# Source project config file and project functions
+#------------------------------
+library(here)
+source(here("R/0-config.R"))
+source(here("R/0-functions.R"))
+source(here("R/01-download-public-data.R"))
 
 # packages
 if (!require("pacman")) install.packages("pacman")
@@ -19,9 +24,11 @@ p_load(rstan, tidyverse, ggridges, reshape2, viridis, posterior, foreach, bayesp
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE, threads_per_chain = 1)
 
-# Read data:
-here::here()
-ind_df <- readRDS(here::here("../../Data/public-devel/", "trachoma_serology_public_data_indiv_devel.rds"))
+#-----------------------------------------
+# read the individual level dataset
+#-----------------------------------------
+# the script above '01-download-public-data.R' should download the dataset as 'df_v4':
+ind_df <- df_v4
 eus <- unique(ind_df$eu_name)
 
 ind_df2 <- ind_df %>% filter(age_years <= 5) %>% # n = 45073/70681
@@ -73,10 +80,10 @@ scr_1to5 <- foreach(i = eus, .combine = rbind) %do% {
 }
 
 #' Save posterior samples:
-write.csv(scr_data, file = here::here("output/", "bayes_SCR_estimates_summary_1to5yo.csv"), row.names = FALSE)
+write.csv(scr_data, file = "bayes_SCR_estimates_summary_1to5yo.csv", row.names = FALSE)
           
 big_scr_df <- dplyr::bind_cols(post_scr_df)
 big_scr_df_long <- melt(big_scr_df, variable.name = "eu", value.name = "scr")
-write.csv(big_scr_df_long, file = here::here("output/", "posterior_samples_scr-1to5yo.csv"), row.names = FALSE)
-saveRDS(big_scr_df_long, file = here::here("output/", "posterior_samples_scr-1to5yo.rds"))
+write.csv(big_scr_df_long, file = "posterior_samples_scr-1to5yo.csv", row.names = FALSE)
+saveRDS(big_scr_df_long, file = "posterior_samples_scr-1to5yo.rds")
 

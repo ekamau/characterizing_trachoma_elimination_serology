@@ -7,10 +7,14 @@
 # Notes:
 # ref - https://stackoverflow.com/questions/67435996/the-probability-that-x-is-larger-than-or-equal-to-a-given-number
 
-#+ setup, include=FALSE
-knitr::opts_chunk$set(collapse = TRUE, eval = FALSE)
+#------------------------------
+# Source project config file and project functions
+#------------------------------
+library(here)
+source(here("R/0-config.R"))
+source(here("R/0-functions.R"))
+source(here("R/01-download-public-data.R"))
 
-#+ warning = FALSE, message = FALSE, eval = FALSE
 # packages
 if (!require("pacman")) install.packages("pacman")
 p_load(tidyverse, ggridges, reshape2, viridis, here, patchwork, ggtext, foreach)
@@ -23,16 +27,15 @@ doParallel::registerDoParallel(cl = my.cluster)
 foreach::getDoParRegistered() # check if registered
 foreach::getDoParWorkers() # how many workers are available?
 
-# Read Bayesian SCR estimates:
+# Read Bayesian SCR estimates: (from R script "5-bayesian-SCR-estimation.R")
 here::here()
-df <- read.csv(here("output/", "posterior_samples_scr-1to5yo_AllEUs.csv"))
+df <- read.csv(here("posterior_samples_scr-1to5yo.csv"))
 eus <- unique(df$eu) # check eu labels!
 
 unpublished_EUs <- c("Niger-Ilela-2022", "Niger-Malbaza-2022", "Niger-Bagaroua-2022", "DRC-Manono-2018", "DRC-Nyemba-2018")
 
 left_out_eus <- c("Sudan-El Seraif-2019", "Sudan-Saraf Omrah-2019", "Sudan-Kotom-2019",
                   "Malaysia-Sabah-2015",  "Peru-Amazonia-2020", "Papua New Guinea-Mendi-2015", "Papua New Guinea-Daru-2015", "Papua New Guinea-West New Britain-2015")
-
 
 df2 <- df[!(df$eu %in% c(unpublished_EUs, left_out_eus)), ] %>% 
   group_by(eu) %>% mutate(median_scr = median(scr, na.rm = TRUE)) %>% 
@@ -100,7 +103,7 @@ A <- foreach(i=prior_elim, k=prior_endemic) %:%
 class(A)
 prob_elim_df <- do.call(rbind, A)
 colnames(prob_elim_df) <- c("prior_set", "c", "prob")
-write.csv(prob_elim_df, "output/probs_scr_elim-1to5yo-2categories.csv", row.names = FALSE)
+write.csv(prob_elim_df, "probs_scr_elim-1to5yo-2categories.csv", row.names = FALSE)
 
 
 # Endemic populations:
@@ -119,7 +122,7 @@ C <- foreach(i=prior_elim, k=prior_endemic) %:% # prior
 class(C)
 prob_endemic_df <- do.call(rbind, C)
 colnames(prob_endemic_df) <- c("prior_set", "c", "prob")
-write.csv(prob_endemic_df, "output/probs_scr_endemic-1to5yo-2categories.csv", row.names = FALSE)
+write.csv(prob_endemic_df, "probs_scr_endemic-1to5yo-2categories.csv", row.names = FALSE)
 
 #------------------------------------------------------------------------------------------
 # Summary table:
@@ -171,8 +174,8 @@ head(scr_table_prob)
 
 scr_table_prob2 <- scr_table_prob %>% filter(prior_set == 0.8)
 
-write.csv(scr_table_prob, "output/table_probabilities_for_cutoff-2categories.csv", row.names = FALSE)
-write.csv(scr_table_prob2, "output/table_probabilities_for_cutoff-prior0.8-2categories.csv", row.names = FALSE)
+write.csv(scr_table_prob, "table_probabilities_for_cutoff-2categories.csv", row.names = FALSE)
+write.csv(scr_table_prob2, "table_probabilities_for_cutoff-prior0.8-2categories.csv", row.names = FALSE)
 
 #-------------------------------------------------------------------------------------------------
 # Summarize / calculate cutoff 'B':
@@ -190,5 +193,5 @@ scr_df12 <- prob_endemic_df %>% filter(prob >= 0.9 & prob < 0.91) %>% group_by(p
                                                   trachoma_cat = "Endemic transmission") %>% 
   as.data.frame()
 
-write.csv(rbind(scr_df11, scr_df12), "output/table_probabilities_2categories-cutoffB.csv", row.names = FALSE)
+write.csv(rbind(scr_df11, scr_df12), "table_probabilities_2categories-cutoffB.csv", row.names = FALSE)
 

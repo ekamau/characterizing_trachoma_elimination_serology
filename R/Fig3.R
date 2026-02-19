@@ -81,9 +81,7 @@ rbind(dfA, dfC) %>%
         legend.position = 'none')
 
 
-ggsave(filename = here("output/", "Fig3.png"), width = 5, height = 5, dpi = 300)
+ggsave(filename = here("Fig3.png"), width = 5, height = 5, dpi = 300)
 
-write.csv(scr_table_prob, "table_probabilities_for_cutoff.csv", row.names = FALSE)
-write.csv(scr_table_prob2, "table_probabilities_for_cutoff-prior0.8.csv", row.names = FALSE)
 
 
